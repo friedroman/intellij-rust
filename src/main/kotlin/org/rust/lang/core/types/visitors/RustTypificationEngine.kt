@@ -4,6 +4,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
 import org.rust.lang.core.psi.*
 import org.rust.lang.core.psi.util.parentOfType
+import org.rust.lang.core.psi.visitors.RustComputingVisitor
 import org.rust.lang.core.psi.visitors.RustRecursiveElementVisitor
 import org.rust.lang.core.types.*
 import org.rust.lang.core.types.unresolved.RustUnresolvedPathType
@@ -20,11 +21,7 @@ object RustTypificationEngine {
         return v.inferred
     }
 
-    fun typifyExpr(expr: RustExprElement): RustType {
-        val v = RustExprTypificationVisitor()
-        expr.accept(v)
-        return v.inferred
-    }
+    fun typifyExpr(expr: RustExprElement): RustType = RustExprTypificationVisitor().compute(expr)
 
     fun typifyItem(item: RustItemElement): RustType {
         val v = RustItemTypificationVisitor()
@@ -79,56 +76,48 @@ private open class RustTypificationVisitorBase<T: Any> : RustRecursiveElementVis
 
 }
 
-private class RustExprTypificationVisitor : RustTypificationVisitorBase<RustType>() {
+private class RustExprTypificationVisitor : RustComputingVisitor<RustType>() {
 
     override fun visitElement(element: PsiElement) {
         throw UnsupportedOperationException("Panic! Should not be used with anything except the inheritors of `RustExprElement` hierarchy!")
     }
 
-    /**
-     * NOTA BENE: This is to prevent [cur] from being accessed, prior to being initialized
-     */
-    override fun visitExpr(o: RustExprElement) {
-        cur = RustUnknownType
+    override fun visitExpr(o: RustExprElement) = go {
+        RustUnknownType
     }
 
-    override fun visitPathExpr(o: RustPathExprElement) {
-        cur = o.path.reference.resolve()?.let { RustTypificationEngine.typify(it) } ?: RustUnknownType
+    override fun visitPathExpr(o: RustPathExprElement) = go {
+        o.path.reference.resolve()?.let { RustTypificationEngine.typify(it) } ?: RustUnknownType
     }
 
-    override fun visitStructExpr(o: RustStructExprElement) {
-        cur = o.path.reference.resolve() .let { it as? RustStructItemElement }
-                                        ?.let { RustStructType(it) } ?: RustUnknownType
+    override fun visitStructExpr(o: RustStructExprElement) = go {
+        o.path.reference.resolve() .let { it as? RustStructItemElement }
+                                  ?.let { RustStructType(it) } ?: RustUnknownType
     }
 
-    override fun visitTupleExpr(o: RustTupleExprElement) {
-        cur = RustTupleType(o.exprList.map { RustTypificationEngine.typifyExpr(it) })
+    override fun visitTupleExpr(o: RustTupleExprElement) = go {
+        RustTupleType(o.exprList.map { RustTypificationEngine.typifyExpr(it) })
     }
 
-    override fun visitUnitExpr(o: RustUnitExprElement) {
-        cur = RustUnitType
+    override fun visitUnitExpr(o: RustUnitExprElement) = go {
+        RustUnitType
     }
 
-    override fun visitCallExpr(o: RustCallExprElement) {
+    override fun visitCallExpr(o: RustCallExprElement) = go {
         val calleeType = o.expr.resolvedType
-        if (calleeType is RustFunctionType) {
-            cur = calleeType.retType
-            return
-        }
-
-        cur = RustUnknownType
+        if (calleeType is RustFunctionType)
+            calleeType.retType
+        else
+            RustUnknownType
     }
 
-    override fun visitMethodCallExpr(o: RustMethodCallExprElement) {
+    override fun visitMethodCallExpr(o: RustMethodCallExprElement) = go {
         val ref = o.reference!!
         val method = ref.resolve()
         if (method is RustImplMethodMemberElement)
-            method.retType?.type?.let {
-                cur = it.resolvedType
-                return
-            }
-
-        cur = RustUnknownType
+            method.retType?.type?.resolvedType ?: RustUnknownType
+        else
+            RustUnknownType
     }
 }
 

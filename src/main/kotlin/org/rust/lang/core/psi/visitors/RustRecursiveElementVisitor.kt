@@ -11,3 +11,20 @@ abstract class RustRecursiveElementVisitor : RustElementVisitor() {
     }
 
 }
+
+abstract class RustComputingVisitor<R: Any>: RustRecursiveElementVisitor() {
+    private var result: R? = null
+
+    fun compute(element: PsiElement): R {
+        element.accept(this)
+        return checkNotNull(result) {
+            "Element $element was unhandled" +
+                "\n${element.containingFile.virtualFile.path}" +
+                "\n${element.text}"
+        }
+    }
+
+    protected fun go(block: () -> R) {
+        result = block()
+    }
+}
